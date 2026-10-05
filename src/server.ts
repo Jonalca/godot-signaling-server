@@ -13,8 +13,12 @@ type Client = {
 type Lobby = {
     id: String
     hostId: String
+    mode: LobbyMode
+    maxPlayers: number
     players: Set<String>
 }
+
+type LobbyMode = "1v1" | "2v2"
 
 const clients = new Map<String, Client>();
 const lobbies = new Map<String, Lobby>();
@@ -60,6 +64,10 @@ function broadcastToLobby(
 
         send(player.socket, message)
     }
+}
+
+function isValidLobbyMode(mode: unknown): mode is LobbyMode {
+  return mode === "1v1" || mode === "2v2";
 }
 
 // Helps validate the type of data received by WebRTC
