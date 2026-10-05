@@ -39,6 +39,21 @@ lobby, message) {
         send(player.socket, message);
     }
 }
+// Helps validate the type of data received by WebRTC
+function isValidSignalMessage(message) {
+    // Input validations
+    if (typeof message !== "object" || message === null)
+        return false;
+    if (!("type" in message))
+        return false;
+    if (!("to" in message))
+        return false;
+    if (!("data" in message))
+        return false;
+    if (message.type !== "offer" && message.type !== "answer" && message.type !== "candidate")
+        return false;
+    return typeof message.to === "string";
+}
 wss.on("connection", (socket) => {
     const client = {
         id: generateClientId(),
@@ -52,6 +67,7 @@ wss.on("connection", (socket) => {
         type: "connected",
         player_id: client.id
     });
+    // Message handler
     socket.on("message", (data) => {
         let message;
         try {
@@ -195,6 +211,56 @@ wss.on("connection", (socket) => {
                 username: client.username
             });
             console.log(`Player joined lobby: ${client.username} → ${lobby.id}`);
+            return;
+        }
+        if (message.type === "offer" || message.type === "answer" || message.type === "candidate") {
+            if (client.username === null) {
+                send(socket, {
+                    type: "error",
+                    code: "NOT_LOGGED_IN",
+                    message: "You must be logged in to send signaling messages"
+                });
+                return; // ERROR: Not logged in
+            }
+            if (!isValidSignalMessage(message)) {
+                send(socket, {
+                    type: "error",
+                    code: "INVALID_SIGNAL",
+                    message: "Invalid signaling message"
+                });
+                return; // Invalid signal message
+            }
+            if (client.lobbyId === null) {
+                send(socket, {
+                    type: "error",
+                    code: "NOT_IN_LOBBY",
+                    message: "You must be in a lobby"
+                });
+                return;
+            }
+            const target = clients.get(message.to); //Who to send to
+            if (target === undefined) {
+                send(socket, {
+                    type: "error",
+                    code: "PLAYER_NOT_FOUND",
+                    message: "The target player does not exist"
+                });
+                return;
+            }
+            if (target.lobbyId !== client.lobbyId) {
+                send(socket, {
+                    type: "error",
+                    code: "PLAYER_NOT_IN_LOBBY",
+                    message: "Target player is not on the lobby"
+                });
+                return;
+            }
+            // Send message OK
+            send(target.socket, {
+                type: message.type,
+                from: client.id,
+                data: message.data
+            });
             return;
         }
         send(socket, {
