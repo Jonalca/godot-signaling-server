@@ -209,18 +209,34 @@ wss.on("connection", (socket: WebSocket) => {
             lobbyId = generateLobbyId()
         }
 
+        // Lobby mode is 1v1 or 2v2 only
+        const mode = "mode" in message ? message.mode : undefined;
+
+        if (!isValidLobbyMode(mode)) {
+            send(socket, {
+                type: "error",
+                code: "INVALID_LOBBY_MODE"
+            }); return //ERROR: Invalid lobby mode, only 1v1 or 2v2
+        }
+
+        const maxPlayers = mode === "1v1" ? 2 : 4 //1v1 (2 players) 2v2 (4 players)
+
         const lobby: Lobby = {
             id: lobbyId,
             hostId: client.id,
+            mode,
+            maxPlayers,
             players: new Set([client.id])
-        }
+        };
 
         lobbies.set(lobbyId, lobby) //id + lobby
         client.lobbyId = lobbyId //Set lobby id to client (creator)
 
         send(socket, {
             type: "lobby_created",
-            lobby_id: lobbyId
+            lobby_id: lobbyId,
+            mode: lobby.mode,
+            max_players: lobby.maxPlayers
         })
 
         console.log(`Lobby created: ${lobbyId} by ${client.username} (${client.id})`);
@@ -269,9 +285,14 @@ wss.on("connection", (socket: WebSocket) => {
             type: "error",
             code: "LOBBY_NOT_FOUND",
             message: "Lobby does not exist."
-            });
+            }); return;
+        }
 
-            return;
+        if (lobby.players.size  >= lobby.maxPlayers) {
+            send(socket, {
+                type: "error",
+                code: "LOBBY_FULL"
+            }); return
         }
 
         lobby.players.add(client.id);
@@ -280,6 +301,8 @@ wss.on("connection", (socket: WebSocket) => {
         send(socket, {
             type: "lobby_joined",
             lobby_id: lobby.id,
+            mode: lobby.mode,
+            max_players: lobby.maxPlayers,
             players: Array.from(lobby.players)
         });
 

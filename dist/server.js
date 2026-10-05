@@ -39,6 +39,9 @@ lobby, message) {
         send(player.socket, message);
     }
 }
+function isValidLobbyMode(mode) {
+    return mode === "1v1" || mode === "2v2";
+}
 // Helps validate the type of data received by WebRTC
 function isValidSignalMessage(message) {
     // Input validations
@@ -149,16 +152,30 @@ wss.on("connection", (socket) => {
             while (lobbies.has(lobbyId)) {
                 lobbyId = generateLobbyId();
             }
+            // Lobby mode is 1v1 or 2v2 only
+            const mode = "mode" in message ? message.mode : undefined;
+            if (!isValidLobbyMode(mode)) {
+                send(socket, {
+                    type: "error",
+                    code: "INVALID_LOBBY_MODE"
+                });
+                return; //ERROR: Invalid lobby mode, only 1v1 or 2v2
+            }
+            const maxPlayers = mode === "1v1" ? 2 : 4; //1v1 (2 players) 2v2 (4 players)
             const lobby = {
                 id: lobbyId,
                 hostId: client.id,
+                mode,
+                maxPlayers,
                 players: new Set([client.id])
             };
             lobbies.set(lobbyId, lobby); //id + lobby
             client.lobbyId = lobbyId; //Set lobby id to client (creator)
             send(socket, {
                 type: "lobby_created",
-                lobby_id: lobbyId
+                lobby_id: lobbyId,
+                mode: lobby.mode,
+                max_players: lobby.maxPlayers
             });
             console.log(`Lobby created: ${lobbyId} by ${client.username} (${client.id})`);
             return;
@@ -198,11 +215,20 @@ wss.on("connection", (socket) => {
                 });
                 return;
             }
+            if (lobby.players.size >= lobby.maxPlayers) {
+                send(socket, {
+                    type: "error",
+                    code: "LOBBY_FULL"
+                });
+                return;
+            }
             lobby.players.add(client.id);
             client.lobbyId = lobby.id;
             send(socket, {
                 type: "lobby_joined",
                 lobby_id: lobby.id,
+                mode: lobby.mode,
+                max_players: lobby.maxPlayers,
                 players: Array.from(lobby.players)
             });
             broadcastToLobby(lobby, {
