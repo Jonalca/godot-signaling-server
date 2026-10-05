@@ -204,6 +204,49 @@ wss.on("connection", (socket) => {
         });
     });
     socket.on("close", () => {
+        const lobbyId = client.lobbyId;
+        if (lobbyId !== null) {
+            const lobby = lobbies.get(lobbyId);
+            if (lobby !== undefined) {
+                // Host disconnected: close the entire lobby.
+                if (lobby.hostId === client.id) {
+                    for (const playerId of lobby.players) {
+                        if (playerId === client.id) {
+                            continue;
+                        }
+                        const player = clients.get(playerId);
+                        if (player === undefined) {
+                            continue;
+                        }
+                        send(player.socket, {
+                            type: "lobby_closed",
+                            reason: "HOST_DISCONNECTED"
+                        });
+                        player.lobbyId = null;
+                    }
+                    lobbies.delete(lobbyId);
+                    console.log(`Lobby closed because host disconnected: ${lobbyId}`);
+                }
+                else {
+                    // Normal player disconnected.
+                    lobby.players.delete(client.id);
+                    for (const playerId of lobby.players) {
+                        const player = clients.get(playerId);
+                        if (player === undefined) {
+                            continue;
+                        }
+                        send(player.socket, {
+                            type: "player_left",
+                            player_id: client.id
+                        });
+                    }
+                    if (lobby.players.size === 0) {
+                        lobbies.delete(lobbyId);
+                        console.log(`Lobby removed: ${lobbyId}`);
+                    }
+                }
+            }
+        }
         clients.delete(client.id);
         console.log(`Client disconnected: ${client.id}`);
     });
