@@ -15,10 +15,12 @@ type Lobby = {
     hostId: String
     mode: LobbyMode
     maxPlayers: number
+    state: LobbyState
     players: Set<String>
 }
 
 type LobbyMode = "1v1" | "2v2"
+type LobbyState = "waiting" | "playing"
 
 const clients = new Map<String, Client>();
 const lobbies = new Map<String, Lobby>();
@@ -226,6 +228,7 @@ wss.on("connection", (socket: WebSocket) => {
             hostId: client.id,
             mode,
             maxPlayers,
+            state: "waiting",
             players: new Set([client.id])
         };
 
@@ -288,12 +291,35 @@ wss.on("connection", (socket: WebSocket) => {
             }); return;
         }
 
+        if (lobby.hostId !== client.id) {
+            send(socket, {
+                type: "error",
+                code: "NOT_HOST"
+            }); return
+        }
+
+        if (lobby.state !== "waiting") {
+            send(socket, {
+                type: "error",
+                code: "GAME_ALREADY_STARTED"
+            }); return
+        }
+
         if (lobby.players.size  >= lobby.maxPlayers) {
             send(socket, {
                 type: "error",
                 code: "LOBBY_FULL"
             }); return
         }
+
+        if (lobby.players.size !== lobby.maxPlayers) {
+            send(socket, {
+                type: "error",
+                code: "LOBBY_NOT_FULL"
+            }); return
+        }
+
+        
 
         lobby.players.add(client.id);
         client.lobbyId = lobby.id;
@@ -318,6 +344,56 @@ wss.on("connection", (socket: WebSocket) => {
 
         return;
     }
+
+    if (message.type === "start_game") {
+        if (!client.username || !client.lobbyId) {
+            send(client.socket, {
+            type: "error",
+            code: "NOT_IN_LOBBY"
+            });
+            return;
+        }
+
+        const lobby = lobbies.get(client.lobbyId);
+
+        if (!lobby) {
+            send(client.socket, {
+            type: "error",
+            code: "LOBBY_NOT_FOUND"
+            });
+            return;
+        }
+
+        if (lobby.hostId !== client.id) {
+            send(client.socket, {
+            type: "error",
+            code: "NOT_HOST"
+            });
+            return;
+        }
+
+        if (lobby.state !== "waiting") {
+            send(client.socket, {
+            type: "error",
+            code: "GAME_ALREADY_STARTED"
+            });
+            return;
+        }
+
+        if (lobby.players.size !== lobby.maxPlayers) {
+            send(client.socket, {
+            type: "error",
+            code: "LOBBY_NOT_FULL"
+            });
+            return;
+        }
+
+        lobby.state = "playing";
+
+        send(client.socket, {
+            type: "start_game_ok"
+        });
+        }
 
     if (message.type === "offer" || message.type === "answer" || message.type === "candidate") {
         if (client.username === null) {
