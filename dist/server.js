@@ -167,6 +167,7 @@ wss.on("connection", (socket) => {
                 hostId: client.id,
                 mode,
                 maxPlayers,
+                state: "waiting",
                 players: new Set([client.id])
             };
             lobbies.set(lobbyId, lobby); //id + lobby
@@ -175,7 +176,8 @@ wss.on("connection", (socket) => {
                 type: "lobby_created",
                 lobby_id: lobbyId,
                 mode: lobby.mode,
-                max_players: lobby.maxPlayers
+                max_players: lobby.maxPlayers,
+                host_id: lobby.hostId
             });
             console.log(`Lobby created: ${lobbyId} by ${client.username} (${client.id})`);
             return;
@@ -215,6 +217,13 @@ wss.on("connection", (socket) => {
                 });
                 return;
             }
+            if (lobby.state !== "waiting") {
+                send(socket, {
+                    type: "error",
+                    code: "GAME_ALREADY_STARTED"
+                });
+                return;
+            }
             if (lobby.players.size >= lobby.maxPlayers) {
                 send(socket, {
                     type: "error",
@@ -229,6 +238,7 @@ wss.on("connection", (socket) => {
                 lobby_id: lobby.id,
                 mode: lobby.mode,
                 max_players: lobby.maxPlayers,
+                host_id: lobby.hostId,
                 players: Array.from(lobby.players)
             });
             broadcastToLobby(lobby, {
@@ -237,6 +247,50 @@ wss.on("connection", (socket) => {
                 username: client.username
             });
             console.log(`Player joined lobby: ${client.username} → ${lobby.id}`);
+            return;
+        }
+        if (message.type === "start_game") {
+            if (!client.username || !client.lobbyId) {
+                send(client.socket, {
+                    type: "error",
+                    code: "NOT_IN_LOBBY"
+                });
+                return;
+            }
+            const lobby = lobbies.get(client.lobbyId);
+            if (!lobby) {
+                send(client.socket, {
+                    type: "error",
+                    code: "LOBBY_NOT_FOUND"
+                });
+                return;
+            }
+            if (lobby.hostId !== client.id) {
+                send(client.socket, {
+                    type: "error",
+                    code: "NOT_HOST"
+                });
+                return;
+            }
+            if (lobby.state !== "waiting") {
+                send(client.socket, {
+                    type: "error",
+                    code: "GAME_ALREADY_STARTED"
+                });
+                return;
+            }
+            if (lobby.players.size !== lobby.maxPlayers) {
+                send(client.socket, {
+                    type: "error",
+                    code: "LOBBY_NOT_FULL"
+                });
+                return;
+            }
+            lobby.state = "playing";
+            console.log("PLAYING MODE STARTED");
+            send(client.socket, {
+                type: "start_game_ok"
+            });
             return;
         }
         if (message.type === "offer" || message.type === "answer" || message.type === "candidate") {

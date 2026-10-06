@@ -239,7 +239,8 @@ wss.on("connection", (socket: WebSocket) => {
             type: "lobby_created",
             lobby_id: lobbyId,
             mode: lobby.mode,
-            max_players: lobby.maxPlayers
+            max_players: lobby.maxPlayers,
+            host_id: lobby.hostId
         })
 
         console.log(`Lobby created: ${lobbyId} by ${client.username} (${client.id})`);
@@ -291,13 +292,6 @@ wss.on("connection", (socket: WebSocket) => {
             }); return;
         }
 
-        if (lobby.hostId !== client.id) {
-            send(socket, {
-                type: "error",
-                code: "NOT_HOST"
-            }); return
-        }
-
         if (lobby.state !== "waiting") {
             send(socket, {
                 type: "error",
@@ -305,21 +299,13 @@ wss.on("connection", (socket: WebSocket) => {
             }); return
         }
 
-        if (lobby.players.size  >= lobby.maxPlayers) {
+        if (lobby.players.size >= lobby.maxPlayers) {
             send(socket, {
                 type: "error",
                 code: "LOBBY_FULL"
-            }); return
+            });
+            return;
         }
-
-        if (lobby.players.size !== lobby.maxPlayers) {
-            send(socket, {
-                type: "error",
-                code: "LOBBY_NOT_FULL"
-            }); return
-        }
-
-        
 
         lobby.players.add(client.id);
         client.lobbyId = lobby.id;
@@ -329,6 +315,7 @@ wss.on("connection", (socket: WebSocket) => {
             lobby_id: lobby.id,
             mode: lobby.mode,
             max_players: lobby.maxPlayers,
+            host_id: lobby.hostId,
             players: Array.from(lobby.players)
         });
 
@@ -389,11 +376,13 @@ wss.on("connection", (socket: WebSocket) => {
         }
 
         lobby.state = "playing";
+        console.log("PLAYING MODE STARTED")
 
         send(client.socket, {
             type: "start_game_ok"
         });
-        }
+        return;
+    }
 
     if (message.type === "offer" || message.type === "answer" || message.type === "candidate") {
         if (client.username === null) {
