@@ -7,7 +7,8 @@ type Client = {
   id: String;
   socket: WebSocket;
   username: String | null;
-  lobbyId: String | null
+  lobbyId: String | null;
+  sessionToken: String;
 };
 
 type Lobby = {
@@ -94,7 +95,8 @@ wss.on("connection", (socket: WebSocket) => {
     id: generateClientId(),
     socket,
     username: null,
-    lobbyId: null
+    lobbyId: null,
+    sessionToken: crypto.randomBytes(32).toString("hex")
   };
 
   clients.set(client.id, client);
@@ -167,7 +169,8 @@ wss.on("connection", (socket: WebSocket) => {
       send(socket, {
         type: "login_ok",
         player_id: client.id,
-        username: client.username
+        username: client.username,
+        session_token: client.sessionToken
       });
 
       console.log(

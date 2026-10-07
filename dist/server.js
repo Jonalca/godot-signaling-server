@@ -62,7 +62,8 @@ wss.on("connection", (socket) => {
         id: generateClientId(),
         socket,
         username: null,
-        lobbyId: null
+        lobbyId: null,
+        sessionToken: node_crypto_1.default.randomBytes(32).toString("hex")
     };
     clients.set(client.id, client);
     console.log(`Client connected: ${client.id}`);
@@ -118,7 +119,8 @@ wss.on("connection", (socket) => {
             send(socket, {
                 type: "login_ok",
                 player_id: client.id,
-                username: client.username
+                username: client.username,
+                session_token: client.sessionToken
             });
             console.log(`Player logged in: ${client.username} (${client.id})`);
             return;
