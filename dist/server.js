@@ -123,6 +123,17 @@ function handleReconnect(newClient, sessionToken) {
     // After succesfull reconnect send lobby data to the reconnected player like a normal join event
     sendLobbyState(existingClient);
 }
+function getLobbyAuthority(lobbyId) {
+    const lobby = lobbies.get(lobbyId);
+    if (lobby === undefined) {
+        return null;
+    }
+    const authority = clients.get(lobby.authorityId);
+    if (authority === undefined) {
+        return null;
+    }
+    return authority;
+}
 function sendLobbyState(client) {
     if (client.socket === null) {
         return;
@@ -150,6 +161,7 @@ function sendLobbyState(client) {
         lobby_id: lobby.id,
         mode: lobby.mode,
         max_players: lobby.maxPlayers,
+        authority_id: lobby.authorityId,
         players
     });
 }
@@ -271,6 +283,7 @@ function handleMessage(client, data) {
         const lobby = {
             id: lobbyId,
             hostId: client.id,
+            authorityId: client.id,
             mode,
             maxPlayers,
             state: "waiting",
@@ -345,6 +358,7 @@ function handleMessage(client, data) {
             mode: lobby.mode,
             max_players: lobby.maxPlayers,
             host_id: lobby.hostId,
+            authority_id: lobby.authorityId,
             players: Array.from(lobby.players)
         });
         broadcastToLobby(lobby, {

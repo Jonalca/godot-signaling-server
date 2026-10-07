@@ -14,6 +14,7 @@ type Client = {
 type Lobby = {
     id: String
     hostId: String
+    authorityId: String
     mode: LobbyMode
     maxPlayers: number
     state: LobbyState
@@ -194,6 +195,22 @@ function handleReconnect(
     sendLobbyState(existingClient)
 }
 
+function getLobbyAuthority(lobbyId: string): Client | null {
+  const lobby = lobbies.get(lobbyId);
+
+  if (lobby === undefined) {
+    return null;
+  }
+
+  const authority = clients.get(lobby.authorityId);
+
+  if (authority === undefined) {
+    return null;
+  }
+
+  return authority;
+}
+
 function sendLobbyState(client: Client): void {
 	if (client.socket === null) {
 		return;
@@ -229,6 +246,7 @@ function sendLobbyState(client: Client): void {
 		lobby_id: lobby.id,
 		mode: lobby.mode,
 		max_players: lobby.maxPlayers,
+        authority_id: lobby.authorityId,
 		players
 	});
 }
@@ -384,6 +402,7 @@ function handleMessage(client: Client, data: RawData): void {
         const lobby: Lobby = {
             id: lobbyId,
             hostId: client.id,
+            authorityId: client.id,
             mode,
             maxPlayers,
             state: "waiting",
@@ -474,6 +493,7 @@ function handleMessage(client: Client, data: RawData): void {
             mode: lobby.mode,
             max_players: lobby.maxPlayers,
             host_id: lobby.hostId,
+            authority_id: lobby.authorityId,
             players: Array.from(lobby.players)
         });
 
