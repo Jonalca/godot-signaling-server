@@ -7,6 +7,8 @@ const ws_1 = require("ws");
 const node_crypto_1 = __importDefault(require("node:crypto"));
 const PORT = Number(process.env.PORT) || 8080;
 const MAX_MESSAGE_SIZE = 64 * 1024;
+const MAX_MESSAGES_PER_WINDOW = 60;
+const MESSAGE_RATE_WINDOW_MS = 10_000;
 const clients = new Map();
 const lobbies = new Map();
 const pendingAuthorityTransfers = new Map();
@@ -26,6 +28,16 @@ function isKnownMessageType(value) {
         value === "candidate" ||
         value === "authority_transfer_request" ||
         value === "authority_transfer_ready");
+}
+function isRateLimited(client) {
+    const now = Date.now();
+    if (now - client.messageWindowStartedAt >=
+        MESSAGE_RATE_WINDOW_MS) {
+        client.messageWindowStartedAt = now;
+        client.messageCount = 0;
+    }
+    client.messageCount += 1;
+    return client.messageCount > MAX_MESSAGES_PER_WINDOW;
 }
 function send(socket, message) {
     socket.send(JSON.stringify(message));
@@ -276,10 +288,17 @@ function handleMessage(client, data) {
         });
         return;
     }
+    if (isRateLimited(client)) {
+        sendToClient(client, {
+            type: "error",
+            code: "RATE_LIMITED"
+        });
+        return;
+    }
     let message;
     const socket = client.socket;
     try {
-        message = JSON.parse(data.toString());
+        message = JSON.parse(raw);
     }
     catch {
         sendToClient(client, {
@@ -566,7 +585,9 @@ wss.on("connection", (socket) => {
         socket: null,
         username: null,
         lobbyId: null,
-        sessionToken: node_crypto_1.default.randomBytes(32).toString("hex")
+        sessionToken: node_crypto_1.default.randomBytes(32).toString("hex"),
+        messageWindowStartedAt: Date.now(),
+        messageCount: 0
     };
     clients.set(client.id, client);
     attachSocket(client, socket);

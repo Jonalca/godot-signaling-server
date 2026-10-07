@@ -9,6 +9,8 @@ type Client = {
   username: String | null;
   lobbyId: String | null;
   sessionToken: String;
+  messageWindowStartedAt: number;
+  messageCount: number;
 };
 
 type Lobby = {
@@ -44,6 +46,8 @@ type MessageType =
   | "authority_transfer_ready";
 
 const MAX_MESSAGE_SIZE = 64 * 1024;
+const MAX_MESSAGES_PER_WINDOW = 60;
+const MESSAGE_RATE_WINDOW_MS = 10_000;
 
 const clients = new Map<String, Client>();
 const lobbies = new Map<String, Lobby>();
@@ -72,6 +76,22 @@ function isKnownMessageType(value: unknown): value is MessageType {
     value === "authority_transfer_request" ||
     value === "authority_transfer_ready"
   );
+}
+
+function isRateLimited(client: Client): boolean {
+  const now = Date.now();
+
+  if (
+    now - client.messageWindowStartedAt >=
+    MESSAGE_RATE_WINDOW_MS
+  ) {
+    client.messageWindowStartedAt = now;
+    client.messageCount = 0;
+  }
+
+  client.messageCount += 1;
+
+  return client.messageCount > MAX_MESSAGES_PER_WINDOW;
 }
 
 function send(socket: WebSocket, message: object): void {
@@ -421,12 +441,20 @@ function handleMessage(client: Client, data: RawData): void {
         }); return
     }
 
+    if (isRateLimited(client)) {
+        sendToClient(client, {
+            type: "error",
+            code: "RATE_LIMITED"
+        });
+        return;
+    }
+
     let message: unknown
     
     const socket = client.socket;
 
     try {
-      message = JSON.parse(data.toString());
+      message = JSON.parse(raw);
     } catch {
       sendToClient(client, {
         type: "error",
@@ -775,7 +803,9 @@ wss.on("connection", (socket: WebSocket) => {
         socket: null,
         username: null,
         lobbyId: null,
-        sessionToken: crypto.randomBytes(32).toString("hex")
+        sessionToken: crypto.randomBytes(32).toString("hex"),
+        messageWindowStartedAt: Date.now(),
+        messageCount: 0
     };
 
     clients.set(client.id, client);
