@@ -153,6 +153,7 @@ function handleReconnect(
 	newClient: Client,
 	sessionToken: string
 ): void {
+    //new socket -> Existing player NOT new socket -> new player
 	const existingClient =
 		findClientBySessionToken(sessionToken);
 
@@ -181,7 +182,6 @@ function handleReconnect(
 	clients.delete(newClient.id);
 
 	attachSocket(existingClient, newSocket);
-	newClient.socket = null;
 
 	sendToClient(existingClient, {
 		type: "reconnect_ok",
@@ -189,7 +189,50 @@ function handleReconnect(
 		username: existingClient.username,
 		lobby_id: existingClient.lobbyId
 	});
+
+    // After succesfull reconnect send lobby data to the reconnected player like a normal join event
+    sendLobbyState(existingClient)
 }
+
+function sendLobbyState(client: Client): void {
+	if (client.socket === null) {
+		return;
+	}
+
+	if (client.lobbyId === null) {
+		return;
+	}
+
+	const lobby = lobbies.get(client.lobbyId);
+
+	if (lobby === undefined) {
+		return;
+	}
+
+	const players = [];
+
+	for (const playerId of lobby.players) {
+		const player = clients.get(playerId);
+
+		if (player === undefined) {
+			continue;
+		}
+
+		players.push({
+			id: player.id,
+			username: player.username
+		});
+	}
+
+	sendToClient(client, {
+		type: "lobby_joined",
+		lobby_id: lobby.id,
+		mode: lobby.mode,
+		max_players: lobby.maxPlayers,
+		players
+	});
+}
+
 
 // Helps validate the type of data received by WebRTC
 function isValidSignalMessage(

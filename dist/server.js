@@ -92,6 +92,7 @@ function handleSocketClosed(client, socket) {
     client.socket = null;
 }
 function handleReconnect(newClient, sessionToken) {
+    //new socket -> Existing player NOT new socket -> new player
     const existingClient = findClientBySessionToken(sessionToken);
     if (existingClient === undefined) {
         sendToClient(newClient, {
@@ -113,7 +114,6 @@ function handleReconnect(newClient, sessionToken) {
     }
     clients.delete(newClient.id);
     attachSocket(existingClient, newSocket);
-    newClient.socket = null;
     sendToClient(existingClient, {
         type: "reconnect_ok",
         player_id: existingClient.id,
