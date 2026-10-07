@@ -21,11 +21,23 @@ type Lobby = {
     players: Set<String>
 }
 
+type PendingAuthorityTransfer = {
+  transferId: String;
+  lobbyId: String;
+  oldAuthorityId: String;
+  newAuthorityId: String;
+};
+
 type LobbyMode = "1v1" | "2v2"
 type LobbyState = "waiting" | "playing"
 
 const clients = new Map<String, Client>();
 const lobbies = new Map<String, Lobby>();
+
+const pendingAuthorityTransfers = new Map<
+  String,
+  PendingAuthorityTransfer
+>();
 
 const wss = new WebSocketServer({
   host: "0.0.0.0",
@@ -46,6 +58,30 @@ function sendToClient(client: Client, message: object): void {
 
 function generateClientId(): String {
   return crypto.randomUUID();
+}
+
+
+
+function selectNextAuthority(lobby: Lobby): String | null {
+  const candidates: String[] = [];
+
+  for (const playerId of lobby.players) {
+    const player = clients.get(playerId);
+
+    if (player === undefined) {
+      continue;
+    }
+
+    if (player.socket === null) {
+      continue;
+    }
+
+    candidates.push(player.id);
+  }
+
+  candidates.sort();
+
+  return candidates[0] ?? null;
 }
 
 function isValidUsername(username: unknown): username is String {
@@ -120,6 +156,81 @@ function isValidLobbyMode(mode: unknown): mode is LobbyMode {
 
 function handleDisconnect(client: Client): void {
     client.socket = null
+}
+
+function handleAuthorityTransferRequest(
+  client: Client,
+  targetPlayerId: string
+): void {
+  if (client.username === null) {
+    send(client.socket!, {
+      type: "error",
+      code: "NOT_LOGGED_IN"
+    });
+    return;
+  }
+
+  if (client.lobbyId === null) {
+    send(client.socket!, {
+      type: "error",
+      code: "NOT_IN_LOBBY"
+    });
+    return;
+  }
+
+  const lobby = lobbies.get(client.lobbyId);
+
+  if (lobby === undefined) {
+    return;
+  }
+
+  if (lobby.state !== "playing") {
+    send(client.socket!, {
+      type: "error",
+      code: "GAME_NOT_STARTED"
+    });
+    return;
+  }
+
+  if (lobby.authorityId !== client.id) {
+    send(client.socket!, {
+      type: "error",
+      code: "NOT_AUTHORITY"
+    });
+    return;
+  }
+
+  if (!lobby.players.has(targetPlayerId)) {
+    send(client.socket!, {
+      type: "error",
+      code: "PLAYER_NOT_IN_LOBBY"
+    });
+    return;
+  }
+
+  const target = clients.get(targetPlayerId);
+
+  if (target === undefined || target.socket === null) {
+    send(client.socket!, {
+      type: "error",
+      code: "TARGET_NOT_CONNECTED"
+    });
+    return;
+  }
+
+    const transferId = crypto.randomBytes(16).toString("hex");
+
+    const pendingTransfer: PendingAuthorityTransfer = {
+        transferId,
+        lobbyId: lobby.id,
+        oldAuthorityId: client.id,
+        newAuthorityId: targetPlayerId
+    };
+
+    pendingAuthorityTransfers.set(
+    transferId,
+    pendingTransfer
+    );
 }
 
 function attachSocket(client: Client, socket: WebSocket): void {
