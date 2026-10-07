@@ -8,10 +8,24 @@ const node_crypto_1 = __importDefault(require("node:crypto"));
 const PORT = Number(process.env.PORT) || 8080;
 const clients = new Map();
 const lobbies = new Map();
+const pendingAuthorityTransfers = new Map();
 const wss = new ws_1.WebSocketServer({
     host: "0.0.0.0",
     port: PORT
 });
+function isKnownMessageType(value) {
+    return (value === "login" ||
+        value === "reconnect" ||
+        value === "logout" ||
+        value === "create_lobby" ||
+        value === "join_lobby" ||
+        value === "start_game" ||
+        value === "offer" ||
+        value === "answer" ||
+        value === "candidate" ||
+        value === "authority_transfer_request" ||
+        value === "authority_transfer_ready");
+}
 function send(socket, message) {
     socket.send(JSON.stringify(message));
 }
@@ -23,6 +37,21 @@ function sendToClient(client, message) {
 }
 function generateClientId() {
     return node_crypto_1.default.randomUUID();
+}
+function selectNextAuthority(lobby) {
+    const candidates = [];
+    for (const playerId of lobby.players) {
+        const player = clients.get(playerId);
+        if (player === undefined) {
+            continue;
+        }
+        if (player.socket === null) {
+            continue;
+        }
+        candidates.push(player.id);
+    }
+    candidates.sort();
+    return candidates[0] ?? null;
 }
 function isValidUsername(username) {
     return (typeof username === "string" &&
@@ -71,6 +100,63 @@ function isValidLobbyMode(mode) {
 }
 function handleDisconnect(client) {
     client.socket = null;
+}
+function handleAuthorityTransferRequest(client, targetPlayerId) {
+    if (client.username === null) {
+        send(client.socket, {
+            type: "error",
+            code: "NOT_LOGGED_IN"
+        });
+        return;
+    }
+    if (client.lobbyId === null) {
+        send(client.socket, {
+            type: "error",
+            code: "NOT_IN_LOBBY"
+        });
+        return;
+    }
+    const lobby = lobbies.get(client.lobbyId);
+    if (lobby === undefined) {
+        return;
+    }
+    if (lobby.state !== "playing") {
+        send(client.socket, {
+            type: "error",
+            code: "GAME_NOT_STARTED"
+        });
+        return;
+    }
+    if (lobby.authorityId !== client.id) {
+        send(client.socket, {
+            type: "error",
+            code: "NOT_AUTHORITY"
+        });
+        return;
+    }
+    if (!lobby.players.has(targetPlayerId)) {
+        send(client.socket, {
+            type: "error",
+            code: "PLAYER_NOT_IN_LOBBY"
+        });
+        return;
+    }
+    const target = clients.get(targetPlayerId);
+    if (target === undefined || target.socket === null) {
+        send(client.socket, {
+            type: "error",
+            code: "TARGET_NOT_CONNECTED"
+        });
+        return;
+    }
+    const transferId = node_crypto_1.default.randomBytes(16).toString("hex");
+    const pendingTransfer = {
+        transferId,
+        lobbyId: lobby.id,
+        oldAuthorityId: client.id,
+        newAuthorityId: targetPlayerId
+    };
+    pendingAuthorityTransfers.set(transferId, pendingTransfer);
 }
 function attachSocket(client, socket) {
     client.socket = socket;
@@ -199,11 +285,10 @@ function handleMessage(client, data) {
     if (typeof message !== "object" ||
         message === null ||
         !("type" in message) ||
-        typeof message.type !== "string") {
+        !isKnownMessageType(message.type)) {
         sendToClient(client, {
             type: "error",
-            code: "INVALID_MESSAGE",
-            message: "Message must contain a string 'type'."
+            code: "UNKNOWN_MESSAGE_TYPE"
         });
         return;
     }

@@ -30,6 +30,18 @@ type PendingAuthorityTransfer = {
 
 type LobbyMode = "1v1" | "2v2"
 type LobbyState = "waiting" | "playing"
+type MessageType =
+  | "login"
+  | "reconnect"
+  | "logout"
+  | "create_lobby"
+  | "join_lobby"
+  | "start_game"
+  | "offer"
+  | "answer"
+  | "candidate"
+  | "authority_transfer_request"
+  | "authority_transfer_ready";
 
 const clients = new Map<String, Client>();
 const lobbies = new Map<String, Lobby>();
@@ -43,6 +55,22 @@ const wss = new WebSocketServer({
   host: "0.0.0.0",
   port: PORT
 });
+
+function isKnownMessageType(value: unknown): value is MessageType {
+  return (
+    value === "login" ||
+    value === "reconnect" ||
+    value === "logout" ||
+    value === "create_lobby" ||
+    value === "join_lobby" ||
+    value === "start_game" ||
+    value === "offer" ||
+    value === "answer" ||
+    value === "candidate" ||
+    value === "authority_transfer_request" ||
+    value === "authority_transfer_ready"
+  );
+}
 
 function send(socket: WebSocket, message: object): void {
   socket.send(JSON.stringify(message));
@@ -404,12 +432,11 @@ function handleMessage(client: Client, data: RawData): void {
       typeof message !== "object" ||
       message === null ||
       !("type" in message) ||
-      typeof message.type !== "string"
+      !isKnownMessageType(message.type)
     ) {
       sendToClient(client, {
         type: "error",
-        code: "INVALID_MESSAGE",
-        message: "Message must contain a string 'type'."
+        code: "UNKNOWN_MESSAGE_TYPE"
       });
 
       return;
