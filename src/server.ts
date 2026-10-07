@@ -43,6 +43,8 @@ type MessageType =
   | "authority_transfer_request"
   | "authority_transfer_ready";
 
+const MAX_MESSAGE_SIZE = 64 * 1024;
+
 const clients = new Map<String, Client>();
 const lobbies = new Map<String, Lobby>();
 
@@ -409,13 +411,19 @@ function isValidSignalMessage(
 }
 
 function handleMessage(client: Client, data: RawData): void {
-    const socket = client.socket;
+    
+    const raw = data.toString()
 
-    if (socket === null) {
-        return;
+    if (Buffer.byteLength(raw, "utf8") > MAX_MESSAGE_SIZE) {
+        sendToClient(client, {
+            type: "error",
+            code: "MESSAGE_TOO_LARGE"
+        }); return
     }
 
-    let message: unknown;
+    let message: unknown
+    
+    const socket = client.socket;
 
     try {
       message = JSON.parse(data.toString());

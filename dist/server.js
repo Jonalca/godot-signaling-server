@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const ws_1 = require("ws");
 const node_crypto_1 = __importDefault(require("node:crypto"));
 const PORT = Number(process.env.PORT) || 8080;
+const MAX_MESSAGE_SIZE = 64 * 1024;
 const clients = new Map();
 const lobbies = new Map();
 const pendingAuthorityTransfers = new Map();
@@ -267,11 +268,16 @@ function isValidSignalMessage(message) {
     return typeof message.to === "string";
 }
 function handleMessage(client, data) {
-    const socket = client.socket;
-    if (socket === null) {
+    const raw = data.toString();
+    if (Buffer.byteLength(raw, "utf8") > MAX_MESSAGE_SIZE) {
+        sendToClient(client, {
+            type: "error",
+            code: "MESSAGE_TOO_LARGE"
+        });
         return;
     }
     let message;
+    const socket = client.socket;
     try {
         message = JSON.parse(data.toString());
     }
