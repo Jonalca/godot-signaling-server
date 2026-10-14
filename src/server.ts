@@ -38,6 +38,7 @@ type MessageType =
   | "logout"
   | "create_lobby"
   | "join_lobby"
+  | "list_lobbies"
   | "start_game"
   | "offer"
   | "answer"
@@ -69,6 +70,7 @@ function isKnownMessageType(value: unknown): value is MessageType {
     value === "logout" ||
     value === "create_lobby" ||
     value === "join_lobby" ||
+    value === "list_lobbies" ||
     value === "start_game" ||
     value === "offer" ||
     value === "answer" ||
@@ -413,6 +415,44 @@ function sendLobbyState(client: Client): void {
 }
 
 
+function isJoinable(lobby: Lobby): boolean {
+	return lobby.state === "waiting" && lobby.players.size < lobby.maxPlayers;
+}
+
+function toLobbySummary(lobby: Lobby) {
+	return {
+		lobby_id: lobby.id,
+		mode: lobby.mode,
+		max_players: lobby.maxPlayers,
+		player_count: lobby.players.size,
+		host_username: clients.get(lobby.hostId)?.username ?? null
+	};
+}
+
+function handleListLobbies(client: Client): void {
+	if (client.username === null) {
+		sendToClient(client, {
+			type: "error",
+			code: "NOT_LOGGED_IN",
+			message: "You must be logged in to list lobbies."
+		});
+		return;
+	}
+
+	const joinableLobbies = [];
+
+	for (const lobby of lobbies.values()) {
+		if (isJoinable(lobby)) {
+			joinableLobbies.push(toLobbySummary(lobby));
+		}
+	}
+
+	sendToClient(client, {
+		type: "lobby_list",
+		lobbies: joinableLobbies
+	});
+}
+
 // Helps validate the type of data received by WebRTC
 function isValidSignalMessage(
     message: unknown
@@ -681,6 +721,11 @@ function handleMessage(client: Client, data: RawData): void {
             `Player joined lobby: ${client.username} → ${lobby.id}`
         );
 
+        return;
+    }
+
+    if (message.type === "list_lobbies") {
+        handleListLobbies(client);
         return;
     }
 
