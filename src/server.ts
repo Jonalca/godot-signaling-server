@@ -39,6 +39,7 @@ type MessageType =
   | "create_lobby"
   | "join_lobby"
   | "list_lobbies"
+  | "leave_lobby"
   | "start_game"
   | "offer"
   | "answer"
@@ -71,6 +72,7 @@ function isKnownMessageType(value: unknown): value is MessageType {
     value === "create_lobby" ||
     value === "join_lobby" ||
     value === "list_lobbies" ||
+    value === "leave_lobby" ||
     value === "start_game" ||
     value === "offer" ||
     value === "answer" ||
@@ -453,6 +455,69 @@ function handleListLobbies(client: Client): void {
 	});
 }
 
+function closeLobby(lobby: Lobby, reason: string): void {
+	broadcastToLobby(lobby, {
+		type: "lobby_closed",
+		reason
+	});
+
+	for (const playerId of lobby.players) {
+		const player = clients.get(playerId);
+
+		if (player !== undefined) {
+			player.lobbyId = null;
+		}
+	}
+
+	lobbies.delete(lobby.id);
+	console.log(`Lobby closed: ${lobby.id} (${reason})`);
+}
+
+function removePlayerFromLobby(client: Client, lobby: Lobby): void {
+	lobby.players.delete(client.id);
+	client.lobbyId = null;
+
+	// Without its host nobody can start the game, and an empty lobby has no one left to join it
+	if (lobby.hostId === client.id || lobby.players.size === 0) {
+		closeLobby(lobby, "HOST_LEFT");
+		return;
+	}
+
+	broadcastToLobby(lobby, {
+		type: "player_left",
+		player_id: client.id
+	});
+}
+
+function handleLeaveLobby(client: Client): void {
+	if (client.lobbyId === null) {
+		sendToClient(client, {
+			type: "error",
+			code: "NOT_IN_LOBBY",
+			message: "You are not in a lobby."
+		});
+		return;
+	}
+
+	const lobby = lobbies.get(client.lobbyId);
+
+	if (lobby === undefined) {
+		sendToClient(client, {
+			type: "error",
+			code: "LOBBY_NOT_FOUND"
+		});
+		return;
+	}
+
+	removePlayerFromLobby(client, lobby);
+
+	sendToClient(client, {
+		type: "leave_lobby_ok"
+	});
+
+	console.log(`Player left lobby: ${client.username} (${client.id}) -> ${lobby.id}`);
+}
+
 // Helps validate the type of data received by WebRTC
 function isValidSignalMessage(
     message: unknown
@@ -726,6 +791,11 @@ function handleMessage(client: Client, data: RawData): void {
 
     if (message.type === "list_lobbies") {
         handleListLobbies(client);
+        return;
+    }
+
+    if (message.type === "leave_lobby") {
+        handleLeaveLobby(client);
         return;
     }
 
